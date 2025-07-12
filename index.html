@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英文打字訓練機</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: rgba(0,0,0,0.2);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            z-index: 1000;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 10px;
+        }
+        
+        .game-area {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .falling-word {
+            position: absolute;
+            background: white;
+            color: #333;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            animation: fall linear infinite;
+        }
+        
+        @keyframes fall {
+            from {
+                top: -50px;
+            }
+            to {
+                top: 100vh;
+            }
+        }
+        
+        .input-area {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .input-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        input[type="text"] {
+            padding: 15px 20px;
+            font-size: 18px;
+            border: none;
+            border-radius: 25px;
+            width: 300px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+        }
+        
+        button {
+            padding: 15px 25px;
+            font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        .game-over {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+            font-size: 24px;
+            z-index: 2000;
+        }
+        
+        .restart-btn {
+            margin-top: 20px;
+            padding: 15px 30px;
+            font-size: 18px;
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+        }
+        
+        .miss-counter {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,0,0,0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <h1>英文打字訓練機</h1>
+            <div class="stats">
+                <div>分數: <span id="score">0</span></div>
+                <div>已消除: <span id="eliminated">0</span></div>
+                <div>速度: <span id="speed">1</span></div>
+            </div>
+        </div>
+        
+        <div class="miss-counter">
+            失誤: <span id="misses">0</span>/3
+        </div>
+        
+        <div class="game-area" id="gameArea"></div>
+        
+        <div class="input-area">
+            <div class="input-container">
+                <input type="text" id="wordInput" placeholder="輸入單字後按Enter">
+                <button onclick="submitWord()">送出</button>
+            </div>
+        </div>
+        
+        <div class="game-over" id="gameOver">
+            <h2>遊戲結束!</h2>
+            <p>最終分數: <span id="finalScore">0</span></p>
+            <p>消除單字: <span id="finalEliminated">0</span></p>
+            <button class="restart-btn" onclick="restartGame()">重新開始</button>
+        </div>
+    </div>
+
+    <script>
+        let gameState = {
+            score: 0,
+            eliminated: 0,
+            misses: 0,
+            speed: 1,
+            words: [],
+            wordId: 0,
+            gameRunning: true,
+            spawnInterval: null,
+            gameLoop: null
+        };
+
+        const wordList = [
+            'apple', 'banana', 'orange', 'grape', 'cherry', 'strawberry',
+            'computer', 'keyboard', 'mouse', 'monitor', 'laptop', 'phone',
+            'house', 'garden', 'flower', 'tree', 'grass', 'water',
+            'happy', 'smile', 'laugh', 'joy', 'love', 'peace',
+            'music', 'dance', 'sing', 'play', 'game', 'fun',
+            'school', 'teacher', 'student', 'book', 'pen', 'paper',
+            'cat', 'dog', 'bird', 'fish', 'rabbit', 'horse',
+            'red', 'blue', 'green', 'yellow', 'purple', 'pink',
+            'run', 'walk', 'jump', 'swim', 'fly', 'drive',
+            'food', 'eat', 'drink', 'cook', 'bake', 'taste'
+        ];
+
+        function getRandomWord() {
+            return wordList[Math.floor(Math.random() * wordList.length)];
+        }
+
+        function createFallingWord() {
+            if (!gameState.gameRunning) return;
+            
+            const word = getRandomWord();
+            const wordElement = document.createElement('div');
+            wordElement.className = 'falling-word';
+            wordElement.textContent = word;
+            wordElement.id = 'word-' + gameState.wordId++;
+            
+            const gameArea = document.getElementById('gameArea');
+            const maxLeft = gameArea.clientWidth - 150;
+            wordElement.style.left = Math.random() * maxLeft + 'px';
+            wordElement.style.animationDuration = (8 - gameState.speed) + 's';
+            
+            gameArea.appendChild(wordElement);
+            gameState.words.push({
+                element: wordElement,
+                text: word,
+                id: wordElement.id
+            });
+        }
+
+        function checkCollisions() {
+            if (!gameState.gameRunning) return;
+            
+            gameState.words.forEach((wordObj, index) => {
+                const element = wordObj.element;
+                const rect = element.getBoundingClientRect();
+                
+                if (rect.top > window.innerHeight - 100) {
+                    element.remove();
+                    gameState.words.splice(index, 1);
+                    gameState.misses++;
+                    updateStats();
+                    
+                    if (gameState.misses >= 3) {
+                        endGame();
+                    }
+                }
+            });
+        }
+
+        function submitWord() {
+            const input = document.getElementById('wordInput');
+            const inputValue = input.value.trim().toLowerCase();
+            
+            if (inputValue === '') return;
+            
+            let wordFound = false;
+            
+            gameState.words.forEach((wordObj, index) => {
+                if (wordObj.text.toLowerCase() === inputValue && !wordFound) {
+                    wordObj.element.remove();
+                    gameState.words.splice(index, 1);
+                    gameState.score += 10;
+                    gameState.eliminated++;
+                    wordFound = true;
+                    
+                    if (gameState.eliminated % 10 === 0) {
+                        gameState.speed = Math.min(gameState.speed + 0.5, 5);
+                    }
+                }
+            });
+            
+            input.value = '';
+            updateStats();
+        }
+
+        function updateStats() {
+            document.getElementById('score').textContent = gameState.score;
+            document.getElementById('eliminated').textContent = gameState.eliminated;
+            document.getElementById('speed').textContent = gameState.speed.toFixed(1);
+            document.getElementById('misses').textContent = gameState.misses;
+        }
+
+        function endGame() {
+            gameState.gameRunning = false;
+            clearInterval(gameState.spawnInterval);
+            clearInterval(gameState.gameLoop);
+            
+            document.getElementById('finalScore').textContent = gameState.score;
+            document.getElementById('finalEliminated').textContent = gameState.eliminated;
+            document.getElementById('gameOver').style.display = 'flex';
+        }
+
+        function restartGame() {
+            gameState = {
+                score: 0,
+                eliminated: 0,
+                misses: 0,
+                speed: 1,
+                words: [],
+                wordId: 0,
+                gameRunning: true,
+                spawnInterval: null,
+                gameLoop: null
+            };
+            
+            document.getElementById('gameArea').innerHTML = '';
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('wordInput').value = '';
+            
+            updateStats();
+            startGame();
+        }
+
+        function startGame() {
+            gameState.spawnInterval = setInterval(() => {
+                createFallingWord();
+            }, 2000);
+            
+            gameState.gameLoop = setInterval(() => {
+                checkCollisions();
+            }, 100);
+        }
+
+        document.getElementById('wordInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                submitWord();
+            }
+        });
+
+        document.getElementById('wordInput').focus();
+        
+        startGame();
+    </script>
+</body>
+</html></parameter>
+</invoke>
