@@ -78,32 +78,30 @@ class YouTubeVideoProcessor {
     async getVideoInfo() {
         this.showProgress('獲取影片資訊...', 20);
         
+        // 由於CORS限制，直接使用預設值並嘗試從oembed API獲取標題
+        this.videoInfo = {
+            title: `YouTube影片 ${this.videoId}`,
+            duration: 600, // 預設10分鐘
+            channelTitle: '未知頻道',
+            publishedAt: new Date().toISOString()
+        };
+
         try {
-            // 嘗試從YouTube頁面獲取基本資訊
-            const response = await fetch(`https://www.youtube.com/watch?v=${this.videoId}`, {
-                mode: 'cors'
-            });
+            // 嘗試使用YouTube oEmbed API獲取標題
+            const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${this.videoId}&format=json`;
+            const response = await fetch(oembedUrl);
             
             if (response.ok) {
-                const html = await response.text();
-                this.parseVideoInfoFromHTML(html);
-            } else {
-                // 如果無法獲取，使用預設值
-                this.videoInfo = {
-                    title: `YouTube影片 ${this.videoId}`,
-                    duration: 600, // 預設10分鐘
-                    channelTitle: '未知頻道',
-                    publishedAt: new Date().toISOString()
-                };
+                const data = await response.json();
+                if (data.title) {
+                    this.videoInfo.title = data.title;
+                }
+                if (data.author_name) {
+                    this.videoInfo.channelTitle = data.author_name;
+                }
             }
         } catch (error) {
-            console.log('無法獲取影片資訊，使用預設值');
-            this.videoInfo = {
-                title: `YouTube影片 ${this.videoId}`,
-                duration: 600, // 預設10分鐘
-                channelTitle: '未知頻道',
-                publishedAt: new Date().toISOString()
-            };
+            console.log('無法從oEmbed API獲取資訊，使用預設值');
         }
     }
 
@@ -208,22 +206,41 @@ class YouTubeVideoProcessor {
     async imageToBase64(imageUrl) {
         return new Promise((resolve, reject) => {
             const img = new Image();
-            img.crossOrigin = 'anonymous';
+            
+            // 不設置crossOrigin，因為YouTube圖片可能不支援CORS
+            // img.crossOrigin = 'anonymous';
             
             img.onload = () => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                canvas.width = img.width;
-                canvas.height = img.height;
+                // 設置合理的尺寸限制
+                const maxWidth = 1280;
+                const maxHeight = 720;
                 
-                ctx.drawImage(img, 0, 0);
+                let { width, height } = img;
+                
+                if (width > maxWidth) {
+                    height = (height * maxWidth) / width;
+                    width = maxWidth;
+                }
+                
+                if (height > maxHeight) {
+                    width = (width * maxHeight) / height;
+                    height = maxHeight;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                ctx.drawImage(img, 0, 0, width, height);
                 
                 try {
-                    const base64 = canvas.toDataURL('image/jpeg', 0.8);
+                    const base64 = canvas.toDataURL('image/jpeg', 0.7);
                     resolve(base64);
                 } catch (error) {
-                    reject(error);
+                    // 如果CORS失敗，返回圖片URL而不是base64
+                    resolve(imageUrl);
                 }
             };
             
@@ -231,7 +248,8 @@ class YouTubeVideoProcessor {
                 reject(new Error('圖片載入失敗'));
             };
             
-            img.src = imageUrl;
+            // 添加時間戳避免緩存問題
+            img.src = imageUrl + '?t=' + Date.now();
         });
     }
 
@@ -258,7 +276,12 @@ class YouTubeVideoProcessor {
             markdown += `### ${thumbnail.time}\n\n`;
             
             if (thumbnail.base64) {
-                markdown += `![截圖 ${thumbnail.time}](${thumbnail.base64})\n\n`;
+                // 檢查是否為base64還是URL
+                if (thumbnail.base64.startsWith('data:')) {
+                    markdown += `![截圖 ${thumbnail.time}](${thumbnail.base64})\n\n`;
+                } else {
+                    markdown += `![截圖 ${thumbnail.time}](${thumbnail.base64})\n\n`;
+                }
             } else {
                 markdown += `*縮圖載入失敗*\n\n`;
             }
@@ -278,7 +301,14 @@ class YouTubeVideoProcessor {
     }
 
     downloadMarkdown(content, filename) {
-        const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+        // 添加UTF-8 BOM來確保正確編碼
+        const BOM = '\uFEFF';
+        const contentWithBOM = BOM + content;
+        
+        const blob = new Blob([contentWithBOM], { 
+            type: 'text/markdown;charset=utf-8' 
+        });
+        
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
