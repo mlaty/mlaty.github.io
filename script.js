@@ -1,0 +1,469 @@
+class OCRTool {
+    constructor() {
+        this.files = [];
+        this.currentFileIndex = 0;
+        this.recognizedTexts = [];
+        this.isProcessing = false;
+        
+        this.initializeElements();
+        this.bindEvents();
+    }
+
+    initializeElements() {
+        this.fileInput = document.getElementById('fileInput');
+        this.uploadArea = document.getElementById('uploadArea');
+        this.uploadButton = document.getElementById('uploadButton');
+        this.imagePreview = document.getElementById('imagePreview');
+        this.processBtn = document.getElementById('processBtn');
+        this.progressBar = document.getElementById('progressBar');
+        this.progressFill = document.querySelector('.progress-fill');
+        this.progressText = document.querySelector('.progress-text');
+        this.resultText = document.getElementById('resultText');
+        this.copyBtn = document.getElementById('copyBtn');
+        this.uploadModeInputs = document.querySelectorAll('input[name="uploadMode"]');
+        
+    }
+
+    bindEvents() {
+        // File input change
+        this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        
+        // Drag and drop
+        this.uploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
+        this.uploadArea.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+        this.uploadArea.addEventListener('drop', (e) => this.handleDrop(e));
+        
+        // Upload button click - Safari compatible
+        this.uploadButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.fileInput.click();
+        });
+        
+        // Process button
+        this.processBtn.addEventListener('click', () => this.startOCRProcess());
+        
+        // Copy button
+        this.copyBtn.addEventListener('click', () => this.copyToClipboard());
+        
+        // Upload mode change
+        this.uploadModeInputs.forEach(input => {
+            input.addEventListener('change', () => this.handleUploadModeChange());
+        });
+        
+        // Paste image functionality
+        document.addEventListener('paste', (e) => this.handlePaste(e));
+    }
+
+    handleFileSelect(e) {
+        const uploadMode = document.querySelector('input[name="uploadMode"]:checked').value;
+        const shouldAppend = uploadMode === 'batch' && this.files.length > 0;
+        
+        this.processFiles(e.target.files, shouldAppend);
+    }
+
+    handleDragOver(e) {
+        e.preventDefault();
+        this.uploadArea.classList.add('dragover');
+    }
+
+    handleDragLeave(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Only remove dragover if leaving the upload area completely
+        if (!this.uploadArea.contains(e.relatedTarget)) {
+            this.uploadArea.classList.remove('dragover');
+        }
+    }
+
+    handleDrop(e) {
+        e.preventDefault();
+        this.uploadArea.classList.remove('dragover');
+        
+        const uploadMode = document.querySelector('input[name="uploadMode"]:checked').value;
+        const shouldAppend = uploadMode === 'batch' && this.files.length > 0;
+        
+        this.processFiles(e.dataTransfer.files, shouldAppend);
+    }
+
+    processFiles(fileList, isAppend = false) {
+        const validFiles = Array.from(fileList).filter(file => {
+            // Safari sometimes doesn't set file.type correctly, so also check file extension
+            const isValidType = file.type === 'image/jpeg' || file.type === 'image/jpg' || file.type === 'image/png';
+            const hasValidExtension = /\.(jpe?g|png)$/i.test(file.name);
+            return isValidType || hasValidExtension;
+        });
+
+        if (validFiles.length === 0) {
+            alert('請選擇有效的 JPG 或 PNG 圖片檔案');
+            return;
+        }
+
+        if (isAppend) {
+            this.files = [...this.files, ...validFiles];
+        } else {
+            this.files = validFiles;
+        }
+        
+        this.displayImagePreviews();
+        this.processBtn.disabled = false;
+    }
+
+    displayImagePreviews() {
+        this.imagePreview.innerHTML = '';
+        
+        this.files.forEach((file, index) => {
+            const previewItem = document.createElement('div');
+            previewItem.className = 'preview-item';
+            
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(file);
+            
+            const filename = document.createElement('div');
+            filename.className = 'filename';
+            filename.textContent = file.name;
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.innerHTML = '×';
+            deleteBtn.title = '刪除此圖片';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.deleteFile(index);
+            };
+            
+            previewItem.appendChild(img);
+            previewItem.appendChild(filename);
+            previewItem.appendChild(deleteBtn);
+            this.imagePreview.appendChild(previewItem);
+        });
+    }
+    
+    deleteFile(index) {
+        // Remove file from array
+        this.files.splice(index, 1);
+        
+        // Update preview
+        this.displayImagePreviews();
+        
+        // Disable process button if no files
+        if (this.files.length === 0) {
+            this.processBtn.disabled = true;
+            this.resultText.value = '';
+            this.copyBtn.disabled = true;
+        }
+    }
+
+    async startOCRProcess() {
+        if (this.isProcessing) return;
+        
+        this.isProcessing = true;
+        this.processBtn.disabled = true;
+        this.copyBtn.disabled = true;
+        this.resultText.value = '';
+        this.recognizedTexts = [];
+        
+        this.showProgressBar();
+        
+        const uploadMode = document.querySelector('input[name="uploadMode"]:checked').value;
+        
+        try {
+            for (let i = 0; i < this.files.length; i++) {
+                this.currentFileIndex = i;
+                this.updateProgress((i / this.files.length) * 100, `正在處理第 ${i + 1} 張圖片...`);
+                
+                const text = await this.processImage(this.files[i]);
+                this.recognizedTexts.push(text);
+                
+                // Update result display progressively
+                this.updateResultDisplay(uploadMode);
+            }
+            
+            this.updateProgress(100, '辨識完成！');
+            
+        } catch (error) {
+            console.error('OCR Error:', error);
+            alert('辨識過程中發生錯誤，請重試');
+        } finally {
+            this.isProcessing = false;
+            this.processBtn.disabled = false;
+            this.copyBtn.disabled = false;
+            this.hideProgressBar();
+        }
+    }
+
+    async processImage(file) {
+        try {
+            // Detect language automatically
+            const languages = await this.detectLanguage(file);
+            
+            // Perform OCR with detected languages
+            const result = await Tesseract.recognize(file, languages, {
+                logger: m => {
+                    if (m.status === 'recognizing text') {
+                        const progress = Math.floor(m.progress * 100);
+                        this.updateProgress(
+                            (this.currentFileIndex / this.files.length) * 100 + (progress / this.files.length),
+                            `辨識中... ${progress}%`
+                        );
+                    }
+                }
+            });
+
+            // Process the recognized text to preserve layout
+            return this.processRecognizedText(result.data);
+
+        } catch (error) {
+            console.error('Error processing image:', error);
+            return `辨識失敗: ${file.name}`;
+        }
+    }
+
+    async detectLanguage(file) {
+        try {
+            // Try to detect with mixed Chinese and English first
+            const quickResult = await Tesseract.recognize(file, 'chi_tra+eng', {
+                logger: () => {} // Silent mode for language detection
+            });
+            
+            const text = quickResult.data.text;
+            const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+            const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
+            const totalChars = chineseChars + englishChars;
+            
+            if (totalChars === 0) {
+                return 'chi_tra+eng'; // Default fallback
+            }
+            
+            const chineseRatio = chineseChars / totalChars;
+            
+            if (chineseRatio > 0.7) {
+                return 'chi_tra';
+            } else if (chineseRatio < 0.3) {
+                return 'eng';
+            } else {
+                return 'chi_tra+eng';
+            }
+            
+        } catch (error) {
+            console.error('Language detection error:', error);
+            return 'chi_tra+eng'; // Default fallback
+        }
+    }
+
+    processRecognizedText(data) {
+        // Extract text with basic layout preservation
+        let processedText = '';
+        
+        // Try to detect tables
+        const words = data.words;
+        if (this.looksLikeTable(words)) {
+            processedText = this.formatAsTable(words);
+        } else {
+            // Regular text with paragraph preservation
+            processedText = this.formatAsText(data);
+        }
+        
+        return processedText;
+    }
+
+    looksLikeTable(words) {
+        // Simple table detection logic
+        const lines = this.groupWordsByLines(words);
+        if (lines.length < 2) return false;
+        
+        // Check if there are consistent column alignments
+        const columnCounts = lines.map(line => line.length);
+        const avgColumns = columnCounts.reduce((a, b) => a + b, 0) / columnCounts.length;
+        
+        return avgColumns >= 2 && columnCounts.some(count => Math.abs(count - avgColumns) < 2);
+    }
+
+    groupWordsByLines(words) {
+        const lines = [];
+        let currentLine = [];
+        let lastY = null;
+        
+        words.forEach(word => {
+            if (lastY !== null && Math.abs(word.bbox.y0 - lastY) > 20) {
+                if (currentLine.length > 0) {
+                    lines.push([...currentLine]);
+                    currentLine = [];
+                }
+            }
+            currentLine.push(word);
+            lastY = word.bbox.y0;
+        });
+        
+        if (currentLine.length > 0) {
+            lines.push(currentLine);
+        }
+        
+        return lines;
+    }
+
+    formatAsTable(words) {
+        const lines = this.groupWordsByLines(words);
+        let tableText = '';
+        
+        lines.forEach(line => {
+            const sortedWords = line.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+            const lineText = sortedWords.map(word => word.text).join('\t');
+            tableText += lineText + '\n';
+        });
+        
+        return tableText;
+    }
+
+    formatAsText(data) {
+        // Use paragraphs to preserve basic structure
+        const paragraphs = data.paragraphs;
+        let text = '';
+        
+        paragraphs.forEach(paragraph => {
+            const paragraphText = paragraph.text.trim();
+            if (paragraphText) {
+                text += paragraphText + ' ';
+            }
+        });
+        
+        // For non-table text, return as single line for Excel cell compatibility
+        return text.trim().replace(/\s+/g, ' ');
+    }
+
+    updateResultDisplay(uploadMode) {
+        if (uploadMode === 'batch') {
+            // For batch mode, separate each image's result with empty line
+            this.resultText.value = this.recognizedTexts.join('\n\n');
+        } else {
+            // For single mode, show all results but process one at a time
+            this.resultText.value = this.recognizedTexts.join('\n\n');
+        }
+    }
+
+    updateProgress(percentage, message) {
+        this.progressFill.style.width = `${percentage}%`;
+        this.progressText.textContent = message;
+    }
+
+    showProgressBar() {
+        this.progressBar.style.display = 'block';
+        this.updateProgress(0, '準備開始...');
+    }
+
+    hideProgressBar() {
+        setTimeout(() => {
+            this.progressBar.style.display = 'none';
+        }, 2000);
+    }
+
+    
+    async copyToClipboard() {
+        try {
+            // Check if Clipboard API is supported (Safari has limited support)
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(this.resultText.value);
+                this.showCopySuccess();
+            } else {
+                // Fallback for Safari and older browsers
+                this.fallbackCopyToClipboard();
+            }
+        } catch (error) {
+            // If Clipboard API fails, use fallback
+            this.fallbackCopyToClipboard();
+        }
+    }
+    
+    fallbackCopyToClipboard() {
+        // Create a temporary textarea for copying
+        const textArea = document.createElement('textarea');
+        textArea.value = this.resultText.value;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            document.execCommand('copy');
+            this.showCopySuccess();
+        } catch (err) {
+            alert('複製失敗，請手動複製文字');
+        } finally {
+            document.body.removeChild(textArea);
+        }
+    }
+    
+    showCopySuccess() {
+        const originalText = this.copyBtn.textContent;
+        this.copyBtn.textContent = '已複製！';
+        this.copyBtn.style.background = '#27ae60';
+        
+        setTimeout(() => {
+            this.copyBtn.textContent = originalText;
+            this.copyBtn.style.background = '';
+        }, 2000);
+    }
+
+    handleUploadModeChange() {
+        // Clear current results when switching modes
+        this.resultText.value = '';
+        this.copyBtn.disabled = true;
+    }
+    
+    handlePaste(e) {
+        e.preventDefault();
+        
+        const clipboardData = e.clipboardData || window.clipboardData;
+        const items = clipboardData.items;
+        
+        let pastedFiles = [];
+        
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            
+            if (item.type.indexOf('image') !== -1) {
+                const file = item.getAsFile();
+                if (file) {
+                    // Create a proper name for pasted image
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const extension = file.type.split('/')[1] || 'png';
+                    const fileName = `pasted-image-${timestamp}.${extension}`;
+                    
+                    // Create a new File object with proper name
+                    const namedFile = new File([file], fileName, {
+                        type: file.type,
+                        lastModified: Date.now()
+                    });
+                    
+                    pastedFiles.push(namedFile);
+                }
+            }
+        }
+        
+        if (pastedFiles.length > 0) {
+            const uploadMode = document.querySelector('input[name="uploadMode"]:checked').value;
+            const shouldAppend = uploadMode === 'batch' && this.files.length > 0;
+            
+            this.processFiles(pastedFiles, shouldAppend);
+            
+            // Show feedback to user
+            const message = pastedFiles.length === 1 ? 
+                '已貼上 1 張圖片' : 
+                `已貼上 ${pastedFiles.length} 張圖片`;
+            
+            // Temporary feedback (could be improved with a proper toast notification)
+            const originalText = document.querySelector('.upload-text div').textContent;
+            document.querySelector('.upload-text div').textContent = message;
+            
+            setTimeout(() => {
+                document.querySelector('.upload-text div').textContent = originalText;
+            }, 2000);
+        }
+    }
+}
+
+// Initialize the OCR tool when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new OCRTool();
+});

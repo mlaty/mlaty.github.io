@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR 文字辨識工具</title>
+    <script src='https://unpkg.com/tesseract.js@v5.0.0/dist/tesseract.min.js'></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>OCR 文字辨識工具</h1>
+            <p>支援 JPG、PNG 格式圖片，自動辨識繁體中文和英文</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="fileInput" multiple accept="image/jpeg,image/jpg,image/png" style="display: none;" />
+                    <button type="button" class="upload-button" id="uploadButton">
+                        <div class="upload-icon">📸</div>
+                        <div class="upload-text">
+                            <div>點擊選擇圖片或拖拽到此處</div>
+                            <div class="upload-hint">支援 JPG、PNG 格式，可單次或批次上傳，或按 Ctrl+V 貼上圖片</div>
+                        </div>
+                    </button>
+                </div>
+                
+                <div class="upload-options">
+                    <label>
+                        <input type="radio" name="uploadMode" value="single" checked>
+                        單次上傳
+                    </label>
+                    <label>
+                        <input type="radio" name="uploadMode" value="batch">
+                        批次上傳
+                    </label>
+                </div>
+
+                <button id="processBtn" class="process-btn" disabled>開始辨識</button>
+            </section>
+
+            <section class="preview-section">
+                <h3>圖片預覽</h3>
+                <div id="imagePreview" class="image-preview"></div>
+            </section>
+
+            <section class="progress-section">
+                <div id="progressBar" class="progress-bar" style="display: none;">
+                    <div class="progress-fill"></div>
+                    <div class="progress-text">辨識中...</div>
+                </div>
+            </section>
+
+            <section class="result-section">
+                <div class="result-header">
+                    <h3>辨識結果</h3>
+                    <button id="copyBtn" class="copy-btn" disabled>複製全部文字</button>
+                </div>
+                <textarea id="resultText" class="result-textarea" placeholder="辨識結果將顯示在此處..."></textarea>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
