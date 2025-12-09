@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown檢視器</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+        }
+        
+        h3 {
+            color: #7f8c8d;
+            background: #ecf0f1;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin: 15px 0;
+        }
+        
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        hr {
+            border: none;
+            height: 1px;
+            background: linear-gradient(to right, transparent, #bdc3c7, transparent);
+            margin: 30px 0;
+        }
+        
+        .upload-area {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            background: #ecf0f1;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            background: #d5dbdb;
+            border-color: #2980b9;
+        }
+        
+        .upload-area.dragover {
+            background: #3498db;
+            color: white;
+        }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        #content {
+            display: none;
+        }
+        
+        .info {
+            background: #e8f4fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Markdown檢視器</h1>
+        
+        <div class="info">
+            <p>這個檢視器可以正確顯示YouTube影片處理工具生成的中文Markdown文件。</p>
+            <p>請選擇或拖拽您的.md文件到下方區域：</p>
+        </div>
+        
+        <div class="upload-area" id="uploadArea">
+            <p>點擊此處選擇文件，或拖拽.md文件到此區域</p>
+            <p style="font-size: 14px; color: #7f8c8d;">支援.md和.markdown格式</p>
+        </div>
+        
+        <input type="file" id="fileInput" accept=".md,.markdown" />
+        
+        <div id="content"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const content = document.getElementById('content');
+
+        // 點擊上傳區域
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // 文件選擇
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                readMarkdownFile(file);
+            }
+        });
+
+        // 拖拽功能
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.name.endsWith('.md') || file.name.endsWith('.markdown')) {
+                    readMarkdownFile(file);
+                } else {
+                    alert('請選擇.md或.markdown文件');
+                }
+            }
+        });
+
+        function readMarkdownFile(file) {
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                try {
+                    let text = e.target.result;
+                    
+                    // 移除UTF-8 BOM（如果存在）
+                    if (text.charCodeAt(0) === 0xFEFF) {
+                        text = text.slice(1);
+                    }
+                    
+                    // 轉換Markdown為HTML
+                    const html = marked.parse(text);
+                    
+                    // 顯示內容
+                    content.innerHTML = html;
+                    content.style.display = 'block';
+                    uploadArea.style.display = 'none';
+                    
+                    // 添加返回按鈕
+                    const backBtn = document.createElement('button');
+                    backBtn.textContent = '選擇其他文件';
+                    backBtn.style.cssText = `
+                        background: #3498db;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        margin-bottom: 20px;
+                        font-size: 14px;
+                    `;
+                    backBtn.onclick = () => {
+                        content.style.display = 'none';
+                        uploadArea.style.display = 'block';
+                        backBtn.remove();
+                        fileInput.value = '';
+                    };
+                    content.parentNode.insertBefore(backBtn, content);
+                    
+                } catch (error) {
+                    alert('文件讀取失敗：' + error.message);
+                }
+            };
+            
+            // 使用UTF-8編碼讀取
+            reader.readAsText(file, 'UTF-8');
+        }
+    </script>
+</body>
+</html>
