@@ -315,19 +315,38 @@ class OCRTool {
     }
 
     formatAsText(data) {
-        // Use paragraphs to preserve basic structure
-        const paragraphs = data.paragraphs;
-        let text = '';
+        // For non-table text, combine all text into a single line for Excel cell compatibility
+        let allText = '';
         
-        paragraphs.forEach(paragraph => {
-            const paragraphText = paragraph.text.trim();
-            if (paragraphText) {
-                text += paragraphText + ' ';
-            }
-        });
+        // Extract text from all paragraphs and lines
+        if (data.paragraphs && data.paragraphs.length > 0) {
+            data.paragraphs.forEach(paragraph => {
+                const paragraphText = paragraph.text.trim();
+                if (paragraphText) {
+                    allText += paragraphText + ' ';
+                }
+            });
+        } else if (data.lines && data.lines.length > 0) {
+            // Fallback to lines if paragraphs are not available
+            data.lines.forEach(line => {
+                const lineText = line.text.trim();
+                if (lineText) {
+                    allText += lineText + ' ';
+                }
+            });
+        } else {
+            // Final fallback to raw text
+            allText = data.text || '';
+        }
         
-        // For non-table text, return as single line for Excel cell compatibility
-        return text.trim().replace(/\s+/g, ' ');
+        // Clean up the text for single cell compatibility:
+        // 1. Remove multiple spaces
+        // 2. Remove all line breaks and tabs
+        // 3. Trim whitespace
+        return allText
+            .replace(/\s+/g, ' ')           // Replace multiple spaces with single space
+            .replace(/[\r\n\t]/g, ' ')      // Replace line breaks and tabs with space
+            .trim();                        // Remove leading/trailing whitespace
     }
 
     updateResultDisplay(uploadMode) {
