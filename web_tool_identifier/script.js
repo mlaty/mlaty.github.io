@@ -21,6 +21,7 @@ class OCRTool {
         this.resultText = document.getElementById('resultText');
         this.copyBtn = document.getElementById('copyBtn');
         this.uploadModeInputs = document.querySelectorAll('input[name="uploadMode"]');
+        this.recognitionModeInputs = document.querySelectorAll('input[name="recognitionMode"]');
         
     }
 
@@ -48,6 +49,11 @@ class OCRTool {
         // Upload mode change
         this.uploadModeInputs.forEach(input => {
             input.addEventListener('change', () => this.handleUploadModeChange());
+        });
+        
+        // Recognition mode change
+        this.recognitionModeInputs.forEach(input => {
+            input.addEventListener('change', () => this.handleRecognitionModeChange());
         });
         
         // Paste image functionality
@@ -251,31 +257,126 @@ class OCRTool {
     }
 
     processRecognizedText(data) {
-        // Extract text with basic layout preservation
+        // Get user's recognition mode preference
+        const recognitionMode = document.querySelector('input[name="recognitionMode"]:checked').value;
         let processedText = '';
         
-        // Try to detect tables
-        const words = data.words;
-        if (this.looksLikeTable(words)) {
-            processedText = this.formatAsTable(words);
-        } else {
-            // Regular text with paragraph preservation
-            processedText = this.formatAsText(data);
+        switch (recognitionMode) {
+            case 'text':
+                // Force text mode - always single line
+                processedText = this.formatAsText(data);
+                break;
+                
+            case 'table':
+                // Force table mode - always preserve table format
+                processedText = this.formatAsTable(data.words || []);
+                break;
+                
+            case 'auto':
+            default:
+                // Auto detection (original logic)
+                const words = data.words;
+                if (this.looksLikeTable(words)) {
+                    processedText = this.formatAsTable(words);
+                } else {
+                    processedText = this.formatAsText(data);
+                }
+                break;
         }
         
         return processedText;
     }
 
     looksLikeTable(words) {
-        // Simple table detection logic
+        // Balanced table detection logic
         const lines = this.groupWordsByLines(words);
-        if (lines.length < 2) return false;
+        if (lines.length < 2) return false; // Need at least 2 rows
         
         // Check if there are consistent column alignments
         const columnCounts = lines.map(line => line.length);
         const avgColumns = columnCounts.reduce((a, b) => a + b, 0) / columnCounts.length;
         
-        return avgColumns >= 2 && columnCounts.some(count => Math.abs(count - avgColumns) < 2);
+        // Criteria for table detection:
+        // 1. Must have at least 2 columns on average
+        // 2. At least 60% of lines must have similar column count  
+        // 3. Must have reasonable column separation
+        if (avgColumns < 2) return false;
+        
+        const similarColumnCountLines = columnCounts.filter(count => 
+            Math.abs(count - avgColumns) <= 1
+        );
+        
+        if (similarColumnCountLines.length / lines.length < 0.6) return false;
+        
+        // Check for column separation and reject continuous text
+        const hasProperStructure = this.hasTableStructure(lines);
+        
+        return hasProperStructure;
+    }
+    
+    hasTableStructure(lines) {
+        if (lines.length < 2) return false;
+        
+        // Check if it's likely continuous text (long sequences)
+        const allText = lines.map(line => line.map(word => word.text).join(' ')).join(' ');
+        const totalWords = allText.split(' ').length;
+        
+        // If there are many words in a flowing manner, it's probably text, not a table
+        if (totalWords > 20 && this.seemsLikeContinuousText(lines)) {
+            return false;
+        }
+        
+        // Check for column alignment
+        let alignmentScore = 0;
+        const tolerance = 30; // pixels
+        
+        for (let i = 1; i < lines.length; i++) {
+            if (lines[i].length === lines[0].length) {
+                let alignedColumns = 0;
+                
+                for (let j = 0; j < lines[0].length && j < lines[i].length; j++) {
+                    const x1 = lines[0][j].bbox.x0;
+                    const x2 = lines[i][j].bbox.x0;
+                    
+                    if (Math.abs(x1 - x2) <= tolerance) {
+                        alignedColumns++;
+                    }
+                }
+                
+                if (alignedColumns / lines[0].length >= 0.5) {
+                    alignmentScore++;
+                }
+            }
+        }
+        
+        // At least 40% of lines should have proper alignment
+        return alignmentScore / (lines.length - 1) >= 0.4;
+    }
+    
+    seemsLikeContinuousText(lines) {
+        // Check if words form continuous sentences
+        const allWords = [];
+        lines.forEach(line => {
+            line.forEach(word => allWords.push(word.text));
+        });
+        
+        const text = allWords.join(' ');
+        
+        // Signs of continuous text:
+        // 1. Contains common connecting words
+        // 2. Has proper sentence flow
+        // 3. Words are not isolated values/numbers
+        const connectingWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'];
+        const hasConnectors = connectingWords.some(word => 
+            text.toLowerCase().includes(' ' + word + ' ')
+        );
+        
+        // Check if most words are complete words (not just numbers or single chars)
+        const completeWords = allWords.filter(word => 
+            word.length > 2 && !/^\d+$/.test(word)
+        );
+        
+        return hasConnectors || (completeWords.length / allWords.length > 0.7);
     }
 
     groupWordsByLines(words) {
@@ -426,6 +527,12 @@ class OCRTool {
 
     handleUploadModeChange() {
         // Clear current results when switching modes
+        this.resultText.value = '';
+        this.copyBtn.disabled = true;
+    }
+    
+    handleRecognitionModeChange() {
+        // Clear current results when switching recognition modes
         this.resultText.value = '';
         this.copyBtn.disabled = true;
     }

@@ -28,14 +28,33 @@
                 </div>
                 
                 <div class="upload-options">
-                    <label>
-                        <input type="radio" name="uploadMode" value="single" checked>
-                        單次上傳
-                    </label>
-                    <label>
-                        <input type="radio" name="uploadMode" value="batch">
-                        批次上傳
-                    </label>
+                    <div class="option-group">
+                        <h4>上傳模式</h4>
+                        <label>
+                            <input type="radio" name="uploadMode" value="single" checked>
+                            單次上傳
+                        </label>
+                        <label>
+                            <input type="radio" name="uploadMode" value="batch">
+                            批次上傳
+                        </label>
+                    </div>
+                    
+                    <div class="option-group">
+                        <h4>辨識模式</h4>
+                        <label>
+                            <input type="radio" name="recognitionMode" value="auto" checked>
+                            自動偵測
+                        </label>
+                        <label>
+                            <input type="radio" name="recognitionMode" value="text">
+                            純文字（單行輸出）
+                        </label>
+                        <label>
+                            <input type="radio" name="recognitionMode" value="table">
+                            表格（保留格式）
+                        </label>
+                    </div>
                 </div>
 
                 <button id="processBtn" class="process-btn" disabled>開始辨識</button>
