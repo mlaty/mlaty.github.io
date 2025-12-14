@@ -5,6 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCR 文字辨識工具</title>
     <script src='https://unpkg.com/tesseract.js@v5.0.0/dist/tesseract.min.js'></script>
+    <script>
+        // Mock PaddleOCR implementation for demo
+        window.paddleOCRAvailable = false;
+        window.mockPaddleOCR = {
+            init: async function() {
+                console.log('Mock PaddleOCR initialized');
+                return true;
+            },
+            ocr: async function(imageData) {
+                // Simulate better OCR results for demo
+                // In production, this would connect to a real PaddleOCR backend
+                console.log('Mock PaddleOCR processing...');
+                
+                // Return a simulated enhanced result
+                return [
+                    {
+                        text: "模擬 PaddleOCR 增強結果",
+                        box: [[0, 0], [100, 0], [100, 30], [0, 30]],
+                        score: 0.95
+                    },
+                    {
+                        text: "更準確的中文辨識",
+                        box: [[0, 35], [120, 35], [120, 65], [0, 65]],
+                        score: 0.92
+                    }
+                ];
+            }
+        };
+        
+        // For now, disable PaddleOCR to prevent errors
+        // In production, you would implement proper PaddleOCR backend integration
+        window.paddleOCRAvailable = false;
+    </script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -55,6 +88,18 @@
                             表格（保留格式）
                         </label>
                     </div>
+                    
+                    <div class="option-group">
+                        <h4>OCR 引擎</h4>
+                        <label>
+                            <input type="radio" name="ocrEngine" value="tesseract" checked>
+                            Tesseract.js
+                        </label>
+                        <label>
+                            <input type="radio" name="ocrEngine" value="paddleocr">
+                            PaddleOCR（開發中）
+                        </label>
+                    </div>
                 </div>
 
                 <button id="processBtn" class="process-btn" disabled>開始辨識</button>
@@ -82,6 +127,6 @@
         </main>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=2024120901"></script>
 </body>
 </html>

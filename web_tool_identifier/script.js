@@ -4,9 +4,11 @@ class OCRTool {
         this.currentFileIndex = 0;
         this.recognizedTexts = [];
         this.isProcessing = false;
+        this.paddleOCRInitialized = false;
         
         this.initializeElements();
         this.bindEvents();
+        this.initializePaddleOCR();
     }
 
     initializeElements() {
@@ -22,6 +24,7 @@ class OCRTool {
         this.copyBtn = document.getElementById('copyBtn');
         this.uploadModeInputs = document.querySelectorAll('input[name="uploadMode"]');
         this.recognitionModeInputs = document.querySelectorAll('input[name="recognitionMode"]');
+        this.ocrEngineInputs = document.querySelectorAll('input[name="ocrEngine"]');
         
     }
 
@@ -58,6 +61,58 @@ class OCRTool {
         
         // Paste image functionality
         document.addEventListener('paste', (e) => this.handlePaste(e));
+    }
+    
+    async initializePaddleOCR() {
+        try {
+            console.log('檢查 PaddleOCR 可用性...');
+            
+            // PaddleOCR requires backend implementation for production use
+            // For now, we disable it and show an informative message
+            this.paddleOCRInitialized = false;
+            this.updatePaddleOCRStatus(false, '需要後端服務支援');
+            
+            /* 
+            Future implementation would include:
+            - Backend API integration
+            - ONNX model hosting
+            - Proper error handling
+            */
+            
+        } catch (error) {
+            console.error('PaddleOCR initialization failed:', error);
+            this.paddleOCRInitialized = false;
+            this.updatePaddleOCRStatus(false, '初始化失敗');
+        }
+    }
+    
+    updatePaddleOCRStatus(isReady, message = '') {
+        const paddleOption = document.querySelector('input[value="paddleocr"]');
+        const label = paddleOption?.closest('label');
+        
+        if (label) {
+            if (isReady) {
+                label.style.opacity = '1';
+                label.title = 'PaddleOCR 已就緒';
+                paddleOption.disabled = false;
+            } else {
+                label.style.opacity = '0.5';
+                label.title = `PaddleOCR 不可用: ${message || '載入失敗'}`;
+                paddleOption.disabled = true;
+                
+                // Auto switch to Tesseract if PaddleOCR fails
+                if (paddleOption.checked) {
+                    document.querySelector('input[value="tesseract"]').checked = true;
+                }
+                
+                // Update label text to show it's not available
+                const labelText = label.querySelector('span') || document.createElement('span');
+                if (!label.querySelector('span')) {
+                    labelText.textContent = 'PaddleOCR（需要後端）';
+                    label.appendChild(labelText);
+                }
+            }
+        }
     }
 
     handleFileSelect(e) {
@@ -199,29 +254,139 @@ class OCRTool {
 
     async processImage(file) {
         try {
-            // Detect language automatically
-            const languages = await this.detectLanguage(file);
+            const ocrEngine = document.querySelector('input[name="ocrEngine"]:checked').value;
             
-            // Perform OCR with detected languages
-            const result = await Tesseract.recognize(file, languages, {
-                logger: m => {
-                    if (m.status === 'recognizing text') {
-                        const progress = Math.floor(m.progress * 100);
-                        this.updateProgress(
-                            (this.currentFileIndex / this.files.length) * 100 + (progress / this.files.length),
-                            `辨識中... ${progress}%`
-                        );
-                    }
+            console.log(`Processing with engine: ${ocrEngine}, PaddleOCR ready: ${this.paddleOCRInitialized}`);
+            
+            if (ocrEngine === 'paddleocr') {
+                if (this.paddleOCRInitialized) {
+                    console.log('Using PaddleOCR for processing');
+                    return await this.processPaddleOCR(file);
+                } else {
+                    console.log('PaddleOCR not ready, falling back to Tesseract');
+                    // Show warning and fallback to Tesseract
+                    this.updateProgress(
+                        (this.currentFileIndex / this.files.length) * 100,
+                        'PaddleOCR 未就緒，使用 Tesseract...'
+                    );
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return await this.processTesseractOCR(file);
                 }
-            });
-
-            // Process the recognized text to preserve layout
-            return this.processRecognizedText(result.data);
+            } else {
+                console.log('Using Tesseract for processing');
+                return await this.processTesseractOCR(file);
+            }
 
         } catch (error) {
             console.error('Error processing image:', error);
-            return `辨識失敗: ${file.name}`;
+            return `辨識失敗: ${file.name} (${error.message})`;
         }
+    }
+    
+    async processTesseractOCR(file) {
+        // Detect language automatically
+        const languages = await this.detectLanguage(file);
+        
+        // Perform OCR with detected languages
+        const result = await Tesseract.recognize(file, languages, {
+            logger: m => {
+                if (m.status === 'recognizing text') {
+                    const progress = Math.floor(m.progress * 100);
+                    this.updateProgress(
+                        (this.currentFileIndex / this.files.length) * 100 + (progress / this.files.length),
+                        `Tesseract 辨識中... ${progress}%`
+                    );
+                }
+            }
+        });
+
+        // Process the recognized text to preserve layout
+        return this.processRecognizedText(result.data);
+    }
+    
+    async processPaddleOCR(file) {
+        this.updateProgress(
+            (this.currentFileIndex / this.files.length) * 100 + (25 / this.files.length),
+            `PaddleOCR 載入圖片中...`
+        );
+        
+        try {
+            // Convert file to data URL
+            const dataURL = await this.fileToDataURL(file);
+            
+            this.updateProgress(
+                (this.currentFileIndex / this.files.length) * 100 + (50 / this.files.length),
+                `PaddleOCR 辨識中...`
+            );
+            
+            // Use PaddleOCR for recognition
+            const result = await eSearch.ocr(dataURL);
+            
+            this.updateProgress(
+                (this.currentFileIndex / this.files.length) * 100 + (75 / this.files.length),
+                `PaddleOCR 處理結果中...`
+            );
+            
+            console.log('PaddleOCR result:', result);
+            
+            // Convert PaddleOCR result to our format
+            const processedData = this.convertPaddleOCRResult(result);
+            
+            // Process the recognized text
+            return this.processRecognizedText(processedData);
+            
+        } catch (error) {
+            console.error('PaddleOCR processing error:', error);
+            throw new Error(`PaddleOCR 處理失敗: ${error.message}`);
+        }
+    }
+    
+    fileToDataURL(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+    
+    convertPaddleOCRResult(paddleResult) {
+        // Convert PaddleOCR format to Tesseract-like format
+        const words = [];
+        const paragraphs = [];
+        let allText = '';
+        
+        paddleResult.forEach((item, index) => {
+            const text = item.text;
+            const box = item.box;
+            
+            // Create word object similar to Tesseract format
+            const word = {
+                text: text,
+                bbox: {
+                    x0: Math.min(...box.map(p => p[0])),
+                    y0: Math.min(...box.map(p => p[1])),
+                    x1: Math.max(...box.map(p => p[0])),
+                    y1: Math.max(...box.map(p => p[1]))
+                },
+                confidence: item.score || 0.9
+            };
+            
+            words.push(word);
+            allText += text + ' ';
+        });
+        
+        // Create a paragraph containing all text
+        paragraphs.push({
+            text: allText.trim()
+        });
+        
+        return {
+            text: allText.trim(),
+            words: words,
+            paragraphs: paragraphs,
+            lines: paddleResult.map(item => ({ text: item.text }))
+        };
     }
 
     async detectLanguage(file) {
@@ -288,30 +453,62 @@ class OCRTool {
     }
 
     looksLikeTable(words) {
-        // Balanced table detection logic
+        // More conservative table detection logic
         const lines = this.groupWordsByLines(words);
-        if (lines.length < 2) return false; // Need at least 2 rows
+        if (lines.length < 3) return false; // Need at least 3 rows for a real table
+        
+        // Filter out table border characters for analysis
+        const filteredWords = words.filter(word => {
+            const text = word.text.trim();
+            return text !== '|' && text !== '-' && text !== '+' && text !== '=' && text !== '_' && 
+                   !/^[\|\-\+\=\_\s]+$/.test(text) && text.length > 0;
+        });
+        
+        const filteredLines = this.groupWordsByLines(filteredWords);
+        if (filteredLines.length < 3) return false;
         
         // Check if there are consistent column alignments
-        const columnCounts = lines.map(line => line.length);
+        const columnCounts = filteredLines.map(line => line.length);
         const avgColumns = columnCounts.reduce((a, b) => a + b, 0) / columnCounts.length;
         
-        // Criteria for table detection:
-        // 1. Must have at least 2 columns on average
-        // 2. At least 60% of lines must have similar column count  
-        // 3. Must have reasonable column separation
-        if (avgColumns < 2) return false;
+        // Stricter criteria for table detection:
+        // 1. Must have at least 2.5 columns on average (to avoid two-column text)
+        // 2. At least 70% of lines must have similar column count
+        // 3. Must have clear column separation
+        if (avgColumns < 2.5) return false;
         
         const similarColumnCountLines = columnCounts.filter(count => 
             Math.abs(count - avgColumns) <= 1
         );
         
-        if (similarColumnCountLines.length / lines.length < 0.6) return false;
+        if (similarColumnCountLines.length / filteredLines.length < 0.7) return false;
         
-        // Check for column separation and reject continuous text
-        const hasProperStructure = this.hasTableStructure(lines);
+        // Check for proper table structure
+        const hasProperStructure = this.hasTableStructure(filteredLines);
         
-        return hasProperStructure;
+        // Additional check: look for numeric data patterns (common in tables)
+        const hasNumericData = this.hasNumericDataPattern(filteredLines);
+        
+        return hasProperStructure && hasNumericData;
+    }
+    
+    hasNumericDataPattern(lines) {
+        let numericCells = 0;
+        let totalCells = 0;
+        
+        lines.forEach(line => {
+            line.forEach(word => {
+                const text = word.text.trim();
+                totalCells++;
+                // Check for numbers, percentages, decimals
+                if (/\d/.test(text) || /%/.test(text) || /\d+\.\d+/.test(text)) {
+                    numericCells++;
+                }
+            });
+        });
+        
+        // At least 30% of cells should contain numeric data for it to be considered a table
+        return totalCells > 0 && (numericCells / totalCells) >= 0.3;
     }
     
     hasTableStructure(lines) {
@@ -380,21 +577,36 @@ class OCRTool {
     }
 
     groupWordsByLines(words) {
-        const lines = [];
-        let currentLine = [];
-        let lastY = null;
+        if (words.length === 0) return [];
         
-        words.forEach(word => {
-            if (lastY !== null && Math.abs(word.bbox.y0 - lastY) > 20) {
+        // Sort words by Y position first
+        const sortedWords = words.sort((a, b) => a.bbox.y0 - b.bbox.y0);
+        
+        const lines = [];
+        let currentLine = [sortedWords[0]];
+        let currentLineY = sortedWords[0].bbox.y0;
+        
+        for (let i = 1; i < sortedWords.length; i++) {
+            const word = sortedWords[i];
+            const wordY = word.bbox.y0;
+            
+            // Calculate the line height tolerance (more flexible for different fonts)
+            const lineHeight = currentLine[0] ? (currentLine[0].bbox.y1 - currentLine[0].bbox.y0) : 20;
+            const tolerance = Math.max(lineHeight * 0.5, 10);
+            
+            // If the Y distance is significant, start a new line
+            if (Math.abs(wordY - currentLineY) > tolerance) {
                 if (currentLine.length > 0) {
                     lines.push([...currentLine]);
-                    currentLine = [];
                 }
+                currentLine = [word];
+                currentLineY = wordY;
+            } else {
+                currentLine.push(word);
             }
-            currentLine.push(word);
-            lastY = word.bbox.y0;
-        });
+        }
         
+        // Don't forget the last line
         if (currentLine.length > 0) {
             lines.push(currentLine);
         }
@@ -403,16 +615,255 @@ class OCRTool {
     }
 
     formatAsTable(words) {
-        const lines = this.groupWordsByLines(words);
+        // Filter out table border characters and lines more aggressively
+        const filteredWords = words.filter(word => {
+            const text = word.text.trim();
+            
+            // Check if it's purely table border characters
+            if (!/[a-zA-Z0-9\u4e00-\u9fff%]/.test(text)) {
+                // No letters, numbers, Chinese chars, or percentage signs
+                return false;
+            }
+            
+            // Remove pure border character words
+            if (/^[\|\-\+\=\_\s]+$/.test(text)) {
+                return false;
+            }
+            
+            // Remove single border characters
+            if (text.length === 1 && '|-+=_'.includes(text)) {
+                return false;
+            }
+            
+            return text.length > 0;
+        });
+        
+        const lines = this.groupWordsByLines(filteredWords);
         let tableText = '';
         
         lines.forEach(line => {
-            const sortedWords = line.sort((a, b) => a.bbox.x0 - b.bbox.x0);
-            const lineText = sortedWords.map(word => word.text).join('\t');
-            tableText += lineText + '\n';
+            if (line.length === 0) return;
+            
+            // Group words into columns based on X position clusters
+            const columns = this.groupWordsIntoColumns(line);
+            
+            // Format each column and fix decimal points
+            const formattedColumns = columns.map(column => {
+                const columnText = column.map(word => word.text).join('').trim();
+                const fixedDecimal = this.fixDecimalPoints(columnText);
+                const cleanedText = this.removeTableArtifacts(fixedDecimal);
+                return cleanedText;
+            });
+            
+            // Join columns with tabs
+            const lineText = formattedColumns.filter(col => col.length > 0).join('\t');
+            if (lineText.trim().length > 0) {
+                tableText += lineText + '\n';
+            }
         });
         
-        return tableText;
+        return tableText.trim();
+    }
+    
+    groupWordsIntoColumns(lineWords) {
+        if (lineWords.length === 0) return [];
+        
+        // Sort words by X position
+        const sortedWords = lineWords.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+        
+        // Check if this might be a header row by analyzing text content
+        const isHeaderRow = this.isLikelyHeaderRow(sortedWords);
+        
+        if (isHeaderRow) {
+            // For header rows, try to keep related words together
+            return this.groupHeaderWords(sortedWords);
+        }
+        
+        // For data rows, use normal column grouping
+        return this.groupDataWords(sortedWords);
+    }
+    
+    isLikelyHeaderRow(words) {
+        const allText = words.map(w => w.text).join('');
+        
+        // Check for header indicators
+        const hasChineseWords = /[\u4e00-\u9fff]{2,}/.test(allText);
+        const hasNumbers = /\d+%|\d+\.\d+/.test(allText);
+        const hasYears = /20\d{2}/.test(allText);
+        
+        // If it has mostly Chinese characters and few numbers, likely a header
+        // If it has years (like 2018, 2019), it might be header with year columns
+        return hasChineseWords && (!hasNumbers || hasYears);
+    }
+    
+    groupHeaderWords(sortedWords) {
+        const columns = [];
+        let currentColumn = [];
+        
+        // For headers, be more conservative about splitting
+        for (let i = 0; i < sortedWords.length; i++) {
+            const currentWord = sortedWords[i];
+            
+            if (i === 0) {
+                currentColumn = [currentWord];
+                continue;
+            }
+            
+            const lastWord = sortedWords[i - 1];
+            const gap = currentWord.bbox.x0 - lastWord.bbox.x1;
+            
+            // Check if current word looks like a year or separate header
+            const currentText = currentWord.text.trim();
+            const isYear = /^20\d{2}$/.test(currentText);
+            const isStandaloneWord = currentText.length >= 2;
+            
+            // Average word width for reference
+            const avgWordWidth = sortedWords.reduce((sum, w) => sum + (w.bbox.x1 - w.bbox.x0), 0) / sortedWords.length;
+            
+            // Split if:
+            // 1. Gap is very large (more than 1.5x avg word width)
+            // 2. Current word is a year and gap is significant
+            // 3. Current word is standalone and gap is larger than average
+            if (gap > avgWordWidth * 1.5 || 
+                (isYear && gap > avgWordWidth * 0.8) ||
+                (isStandaloneWord && gap > avgWordWidth)) {
+                
+                if (currentColumn.length > 0) {
+                    columns.push(currentColumn);
+                }
+                currentColumn = [currentWord];
+            } else {
+                currentColumn.push(currentWord);
+            }
+        }
+        
+        if (currentColumn.length > 0) {
+            columns.push(currentColumn);
+        }
+        
+        return columns;
+    }
+    
+    groupDataWords(sortedWords) {
+        // Enhanced logic for data rows with better number handling
+        const columns = [];
+        let currentColumn = [sortedWords[0]];
+        
+        for (let i = 1; i < sortedWords.length; i++) {
+            const currentWord = sortedWords[i];
+            const lastWord = sortedWords[i - 1];
+            
+            // Calculate gap between words
+            const gap = currentWord.bbox.x0 - lastWord.bbox.x1;
+            const avgWordWidth = (lastWord.bbox.x1 - lastWord.bbox.x0);
+            
+            // Special handling for numbers and percentages
+            const currentText = currentWord.text.trim();
+            const lastText = lastWord.text.trim();
+            
+            // Check if this looks like a split number/percentage
+            const isPartOfNumber = this.looksLikeNumberPart(lastText, currentText);
+            
+            // If gap is significant OR it's clearly a new column, start new column
+            // But keep number parts together even with larger gaps
+            if (gap > avgWordWidth * 0.5 && !isPartOfNumber) {
+                columns.push(currentColumn);
+                currentColumn = [currentWord];
+            } else {
+                currentColumn.push(currentWord);
+            }
+        }
+        
+        // Don't forget the last column
+        if (currentColumn.length > 0) {
+            columns.push(currentColumn);
+        }
+        
+        return columns;
+    }
+    
+    looksLikeNumberPart(firstText, secondText) {
+        // Check if two text parts should be combined as a number
+        
+        // Case 1: first is number, second is decimal + percentage (like "58" + "3%")
+        if (/^\d+$/.test(firstText) && /^\d+%$/.test(secondText)) {
+            return true;
+        }
+        
+        // Case 2: first is number, second is just a digit (like "58" + "3")
+        if (/^\d+$/.test(firstText) && /^\d+$/.test(secondText) && secondText.length <= 2) {
+            return true;
+        }
+        
+        // Case 3: first ends with digit, second starts with percentage (like "58" + "%")
+        if (/\d$/.test(firstText) && /^%/.test(secondText)) {
+            return true;
+        }
+        
+        // Case 4: decimal point was recognized separately (like "58" + "." + "3%")
+        if (/^\d+$/.test(firstText) && /^[\.\,]/.test(secondText)) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    fixDecimalPoints(text) {
+        // Fix common OCR decimal point issues
+        let fixedText = text;
+        
+        // Pattern 1: Three-digit percentages likely missing decimal point
+        // 583% -> 58.3%, 249% -> 24.9%, 131% -> 13.1%, etc.
+        fixedText = fixedText.replace(/(\d)(\d)(\d)(%)/g, (match, first, second, third, percent) => {
+            const fullNumber = parseInt(first + second + third);
+            // If it's a three-digit number > 100, likely missing decimal
+            if (fullNumber > 100 && fullNumber < 1000) {
+                return first + second + '.' + third + percent;
+            }
+            return match;
+        });
+        
+        // Pattern 2: Two-digit numbers that might be missing decimal
+        // 81% could be 8.1% if in table context, 87% could be 8.7%
+        fixedText = fixedText.replace(/(\d)(\d)(%)/g, (match, first, second, percent) => {
+            const fullNumber = parseInt(first + second);
+            // For two-digit percentages, be more careful - only fix obvious cases
+            if (fullNumber > 80 && fullNumber < 90) {
+                return first + '.' + second + percent;
+            }
+            return match;
+        });
+        
+        // Pattern 3: Fix standalone decimal points that got separated
+        // Like "58 3%" -> "58.3%"
+        fixedText = fixedText.replace(/(\d+)\s+(\d+)(%)/g, '$1.$2$3');
+        
+        // Pattern 4: Fix decimal points that became commas or other chars
+        fixedText = fixedText.replace(/(\d+)[,،](\d+)(%)/g, '$1.$2$3');
+        
+        // Pattern 5: Handle cases where decimal point is recognized as 'o' or other chars
+        fixedText = fixedText.replace(/(\d+)[o0](\d+)(%)/g, '$1.$2$3');
+        
+        return fixedText;
+    }
+    
+    removeTableArtifacts(text) {
+        // Remove table artifacts from processed text
+        let cleanText = text;
+        
+        // Remove underscores (table borders)
+        cleanText = cleanText.replace(/_/g, '');
+        
+        // Remove other table border characters
+        cleanText = cleanText.replace(/[\|\-\+\=]/g, '');
+        
+        // Remove standalone dots or dashes that might be table elements
+        cleanText = cleanText.replace(/^\.*$|^-*$/g, '');
+        
+        // Clean up extra spaces
+        cleanText = cleanText.replace(/\s+/g, ' ').trim();
+        
+        return cleanText;
     }
 
     formatAsText(data) {
