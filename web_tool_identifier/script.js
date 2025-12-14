@@ -8,7 +8,7 @@ class OCRTool {
         
         this.initializeElements();
         this.bindEvents();
-        this.initializePaddleOCR();
+        // PaddleOCR initialization is now handled in HTML module script
     }
 
     initializeElements() {
@@ -63,57 +63,7 @@ class OCRTool {
         document.addEventListener('paste', (e) => this.handlePaste(e));
     }
     
-    async initializePaddleOCR() {
-        try {
-            console.log('檢查 PaddleOCR 可用性...');
-            
-            // PaddleOCR requires backend implementation for production use
-            // For now, we disable it and show an informative message
-            this.paddleOCRInitialized = false;
-            this.updatePaddleOCRStatus(false, '需要後端服務支援');
-            
-            /* 
-            Future implementation would include:
-            - Backend API integration
-            - ONNX model hosting
-            - Proper error handling
-            */
-            
-        } catch (error) {
-            console.error('PaddleOCR initialization failed:', error);
-            this.paddleOCRInitialized = false;
-            this.updatePaddleOCRStatus(false, '初始化失敗');
-        }
-    }
-    
-    updatePaddleOCRStatus(isReady, message = '') {
-        const paddleOption = document.querySelector('input[value="paddleocr"]');
-        const label = paddleOption?.closest('label');
-        
-        if (label) {
-            if (isReady) {
-                label.style.opacity = '1';
-                label.title = 'PaddleOCR 已就緒';
-                paddleOption.disabled = false;
-            } else {
-                label.style.opacity = '0.5';
-                label.title = `PaddleOCR 不可用: ${message || '載入失敗'}`;
-                paddleOption.disabled = true;
-                
-                // Auto switch to Tesseract if PaddleOCR fails
-                if (paddleOption.checked) {
-                    document.querySelector('input[value="tesseract"]').checked = true;
-                }
-                
-                // Update label text to show it's not available
-                const labelText = label.querySelector('span') || document.createElement('span');
-                if (!label.querySelector('span')) {
-                    labelText.textContent = 'PaddleOCR（需要後端）';
-                    label.appendChild(labelText);
-                }
-            }
-        }
-    }
+    // PaddleOCR initialization is now handled in the HTML module script
 
     handleFileSelect(e) {
         const uploadMode = document.querySelector('input[name="uploadMode"]:checked').value;
@@ -256,15 +206,17 @@ class OCRTool {
         try {
             const ocrEngine = document.querySelector('input[name="ocrEngine"]:checked').value;
             
-            console.log(`Processing with engine: ${ocrEngine}, PaddleOCR ready: ${this.paddleOCRInitialized}`);
+            console.log(`Processing with engine: ${ocrEngine}, PaddleOCR ready: ${window.paddleOCRInitialized}`);
             
             if (ocrEngine === 'paddleocr') {
-                if (this.paddleOCRInitialized) {
+                if (window.paddleOCRInitialized && window.paddleOCR) {
                     console.log('Using PaddleOCR for processing');
                     return await this.processPaddleOCR(file);
+                } else if (window.mockPaddleOCR) {
+                    console.log('Using mock PaddleOCR for demo');
+                    return await this.processMockPaddleOCR(file);
                 } else {
                     console.log('PaddleOCR not ready, falling back to Tesseract');
-                    // Show warning and fallback to Tesseract
                     this.updateProgress(
                         (this.currentFileIndex / this.files.length) * 100,
                         'PaddleOCR 未就緒，使用 Tesseract...'
@@ -311,34 +263,87 @@ class OCRTool {
         );
         
         try {
-            // Convert file to data URL
-            const dataURL = await this.fileToDataURL(file);
+            // Create image element for PaddleJS
+            const imgElement = await this.createImageElement(file);
             
             this.updateProgress(
                 (this.currentFileIndex / this.files.length) * 100 + (50 / this.files.length),
                 `PaddleOCR 辨識中...`
             );
             
-            // Use PaddleOCR for recognition
-            const result = await eSearch.ocr(dataURL);
+            // Use PaddleJS OCR for recognition
+            const result = await window.paddleOCR.recognize(imgElement);
             
             this.updateProgress(
                 (this.currentFileIndex / this.files.length) * 100 + (75 / this.files.length),
                 `PaddleOCR 處理結果中...`
             );
             
-            console.log('PaddleOCR result:', result);
+            console.log('PaddleJS OCR result:', result);
             
-            // Convert PaddleOCR result to our format
+            // Convert PaddleJS result to our format
             const processedData = this.convertPaddleOCRResult(result);
             
             // Process the recognized text
             return this.processRecognizedText(processedData);
             
         } catch (error) {
-            console.error('PaddleOCR processing error:', error);
+            console.error('PaddleJS processing error:', error);
             throw new Error(`PaddleOCR 處理失敗: ${error.message}`);
         }
+    }
+    
+    async processMockPaddleOCR(file) {
+        this.updateProgress(
+            (this.currentFileIndex / this.files.length) * 100 + (25 / this.files.length),
+            `模擬 PaddleOCR 處理中...`
+        );
+        
+        try {
+            // Create image element for mock processing
+            const imgElement = await this.createImageElement(file);
+            
+            this.updateProgress(
+                (this.currentFileIndex / this.files.length) * 100 + (50 / this.files.length),
+                `模擬辨識中...`
+            );
+            
+            // Use mock PaddleOCR
+            const result = await window.mockPaddleOCR.recognize(imgElement);
+            
+            this.updateProgress(
+                (this.currentFileIndex / this.files.length) * 100 + (75 / this.files.length),
+                `處理模擬結果...`
+            );
+            
+            console.log('Mock PaddleOCR result:', result);
+            
+            // Return formatted text directly
+            return result.text || '模擬辨識結果：此為 PaddleOCR 演示版本';
+            
+        } catch (error) {
+            console.error('Mock PaddleOCR error:', error);
+            throw new Error(`模擬 PaddleOCR 處理失敗: ${error.message}`);
+        }
+    }
+    
+    createImageElement(file) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                resolve(img);
+            };
+            
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error('無法載入圖片'));
+            };
+            
+            img.src = url;
+        });
     }
     
     fileToDataURL(file) {
@@ -351,14 +356,44 @@ class OCRTool {
     }
     
     convertPaddleOCRResult(paddleResult) {
-        // Convert PaddleOCR format to Tesseract-like format
+        // Handle both PaddleJS format and array format
+        let textItems = [];
+        
+        if (paddleResult && paddleResult.text && paddleResult.points) {
+            // PaddleJS format: {text: "combined text", points: [...]}
+            const textLines = paddleResult.text.split('\n');
+            const points = paddleResult.points || [];
+            
+            textItems = textLines.map((text, index) => ({
+                text: text.trim(),
+                box: points[index] || [[0, index * 30], [200, index * 30], [200, (index + 1) * 30], [0, (index + 1) * 30]],
+                score: 0.95
+            })).filter(item => item.text.length > 0);
+            
+        } else if (Array.isArray(paddleResult)) {
+            // Array format: [{text: "...", box: [...], score: ...}, ...]
+            textItems = paddleResult;
+        } else {
+            // Fallback for other formats
+            console.warn('Unknown PaddleOCR result format:', paddleResult);
+            return {
+                text: '',
+                words: [],
+                paragraphs: [],
+                lines: []
+            };
+        }
+        
+        // Convert to Tesseract-like format
         const words = [];
-        const paragraphs = [];
+        const lines = [];
         let allText = '';
         
-        paddleResult.forEach((item, index) => {
-            const text = item.text;
-            const box = item.box;
+        textItems.forEach((item, index) => {
+            const text = item.text || '';
+            const box = item.box || [[0, 0], [100, 0], [100, 30], [0, 30]];
+            
+            if (text.trim().length === 0) return;
             
             // Create word object similar to Tesseract format
             const word = {
@@ -369,23 +404,24 @@ class OCRTool {
                     x1: Math.max(...box.map(p => p[0])),
                     y1: Math.max(...box.map(p => p[1]))
                 },
-                confidence: item.score || 0.9
+                confidence: item.score || 0.95
             };
             
             words.push(word);
+            lines.push({ text: text });
             allText += text + ' ';
         });
         
         // Create a paragraph containing all text
-        paragraphs.push({
+        const paragraphs = [{
             text: allText.trim()
-        });
+        }];
         
         return {
             text: allText.trim(),
             words: words,
             paragraphs: paragraphs,
-            lines: paddleResult.map(item => ({ text: item.text }))
+            lines: lines
         };
     }
 
